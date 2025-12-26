@@ -8,12 +8,10 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Optional
 
-
 DB_DEFAULT = "database/attendance.db"
 
 
 def _connect(db_path: str = DB_DEFAULT) -> sqlite3.Connection:
-    """Open a SQLite connection with sane defaults."""
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -22,7 +20,6 @@ def _connect(db_path: str = DB_DEFAULT) -> sqlite3.Connection:
 
 
 def init_db(db_path: str = DB_DEFAULT) -> None:
-    """Create tables if they don't exist."""
     with _connect(db_path) as conn:
         conn.executescript(
             """
@@ -47,15 +44,7 @@ def init_db(db_path: str = DB_DEFAULT) -> None:
         )
 
 
-# ---------------------------
-# Password hashing utilities
-# ---------------------------
-
 def _hash_password(password: str, salt: bytes | None = None, rounds: int = 200_000) -> str:
-    """
-    Returns base64(salt + derived_key).
-    Uses PBKDF2-HMAC-SHA256.
-    """
     if salt is None:
         salt = os.urandom(16)
     dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, rounds)
@@ -63,7 +52,6 @@ def _hash_password(password: str, salt: bytes | None = None, rounds: int = 200_0
 
 
 def _verify_password(password: str, stored: str, rounds: int = 200_000) -> bool:
-    """Constant-time verification against stored base64(salt+dk)."""
     try:
         raw = base64.b64decode(stored.encode("utf-8"))
         salt, dk = raw[:16], raw[16:]
@@ -73,17 +61,7 @@ def _verify_password(password: str, stored: str, rounds: int = 200_000) -> bool:
         return False
 
 
-# ---------------------------
-# Public DB API
-# ---------------------------
-
 def add_student(student_id: str, name: str, password_plain: str, db_path: str = DB_DEFAULT) -> int:
-    """
-    Insert a user (student).
-    Returns inserted user_id.
-    Raises ValueError on invalid input.
-    Raises sqlite3.IntegrityError if student_id already exists.
-    """
     student_id = (student_id or "").strip()
     name = (name or "").strip()
     password_plain = password_plain or ""
@@ -103,7 +81,6 @@ def add_student(student_id: str, name: str, password_plain: str, db_path: str = 
 
 
 def get_user_by_student_id(student_id: str, db_path: str = DB_DEFAULT) -> Optional[dict[str, Any]]:
-    """Return user dict without password_hash, or None."""
     init_db(db_path)
     student_id = (student_id or "").strip()
     if not student_id:
@@ -118,10 +95,6 @@ def get_user_by_student_id(student_id: str, db_path: str = DB_DEFAULT) -> Option
 
 
 def verify_login(student_id: str, password_plain: str, db_path: str = DB_DEFAULT) -> Optional[dict[str, Any]]:
-    """
-    Verify credentials.
-    Returns: {"id":..., "student_id":..., "name":...} or None
-    """
     init_db(db_path)
     student_id = (student_id or "").strip()
     password_plain = password_plain or ""
@@ -150,10 +123,6 @@ def record_attendance(
     liveness_ok: bool = False,
     db_path: str = DB_DEFAULT,
 ) -> int:
-    """
-    Insert one attendance record for a given user.
-    Returns inserted attendance_id.
-    """
     init_db(db_path)
     if not isinstance(user_id, int) or user_id <= 0:
         raise ValueError("user_id must be a positive int.")
@@ -175,9 +144,6 @@ def list_attendance(
     limit: int = 200,
     db_path: str = DB_DEFAULT,
 ) -> list[dict[str, Any]]:
-    """
-    Returns list of attendance rows joined with user info.
-    """
     init_db(db_path)
     limit = max(1, min(int(limit), 2000))
 
@@ -209,7 +175,6 @@ def list_attendance(
 
 
 def latest_attendance_for_student(student_id: str, db_path: str = DB_DEFAULT) -> Optional[dict[str, Any]]:
-    """Convenience helper: get the latest attendance row for a given student_id."""
     init_db(db_path)
     student_id = (student_id or "").strip()
     if not student_id:
