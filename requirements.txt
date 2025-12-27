@@ -1,3 +1,6 @@
-face_recognition
+PySide6
 opencv-python
+face-recognition
+dlib
+Pillow
 numpy
