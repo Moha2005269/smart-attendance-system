@@ -1,0 +1,12 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run Smart Attendance App",
+            "type": "python",
+            "request": "launch",
+            "module": "app.main_app",
+            "console": "integratedTerminal"
+        }
+    ]
+}

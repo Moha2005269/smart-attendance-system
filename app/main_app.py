@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
     QLineEdit
 )
 from PySide6.QtCore import Qt
+from app import auth
+from app import database
 
 
 class MainApp(QMainWindow):
@@ -83,7 +85,7 @@ class MainApp(QMainWindow):
         mark_btn.clicked.connect(self.mark_attendance)
 
         logout_btn = QPushButton("Logout")
-        logout_btn.clicked.connect(self.show_login_screen)
+        logout_btn.clicked.connect(self.logout_clicked)
 
         # Attendance history (simple for now)
         history_label = QLabel("Attendance History")
@@ -109,13 +111,22 @@ class MainApp(QMainWindow):
     
 
     def login_clicked(self):
-        """Login button handler (mock logic)"""
         student_id = self.student_id_input.text()
+        password = self.password_input.text()
 
-        if student_id == "":
-            self.setWindowTitle("Please enter Student ID")
-        else:
-            self.show_main_screen(student_id)
+        user = auth.login(student_id, password)
+
+        if user is None:
+            self.setWindowTitle("Login failed")
+            return
+        
+        self.current_user = user
+        self.show_main_screen(user["student_id"])
+
+    def logout_clicked(self):
+        auth.logout()
+        self.current_user = None
+        self.show_login_screen()
 
     def start_attendance(self):
         """Mock start attendance"""
@@ -123,11 +134,31 @@ class MainApp(QMainWindow):
 
 
     def mark_attendance(self):
-        """Mock mark attendance"""
-        self.status_label.setText("Status: Attendance Marked")
+        if not self.current_user:
+            self.status_label.setText("Status: No user logged in")
+            return
+        
+        user_id = self.current_user["id"]
+
+        # Placeholder values (until recognizer is integrated)
+        status = "Present"
+        confidence = 0.0
+        liveness_ok = True
+        snapshot_path = None
+
+        database.record_attendance(
+            user_id,
+            status,
+            confidence,
+            liveness_ok,
+            snapshot_path
+        )
+        self.status_label.setText("Status: Attendance Recorded")
+
         self.history_box.setText(
-            self.history_box.text() + "\nAttendance marked successfully."
-    )
+            self.history_box.text()
+            + f"\nAttendance recorded for {self.current_user['student_id']}"
+        )
     
 
 if __name__ == "__main__":
