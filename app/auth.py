@@ -1,21 +1,29 @@
-from __future__ import annotations
-from typing import Optional, Any
-from . import database
+from tkinter import messagebox
+from app.database import get_student
 
-_CURRENT_USER: Optional[dict[str, Any]] = None
+class AuthManager:
 
+    def __init__(self):
+        self.current_user = None
 
-def login(student_id: str, password: str) -> Optional[dict[str, Any]]:
-    global _CURRENT_USER
-    user = database.verify_login(student_id, password)
-    _CURRENT_USER = user
-    return user
+    def login(self, student_id, password):
+        user = get_student(student_id, password)
+        if user:
+            self.current_user = {
+                "id": user[0],
+                "student_id": user[1],
+                "name": user[2],
+                "class_name": user[3]
+            }
+            return True
+        else:
+            return False
 
+    def logout(self):
+        self.current_user = None
 
-def logout() -> None:
-    global _CURRENT_USER
-    _CURRENT_USER = None
+    def is_logged_in(self):
+        return self.current_user is not None
 
-
-def current_user() -> Optional[dict[str, Any]]:
-    return _CURRENT_USER
+    def get_current_user(self):
+        return self.current_user
