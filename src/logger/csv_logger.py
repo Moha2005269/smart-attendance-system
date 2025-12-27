@@ -1,34 +1,37 @@
-from __future__ import annotations
-
 import csv
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from datetime import datetime
 
-DEFAULT_CSV_PATH = "attendance_records/attendance_log.csv"
 
-def log_attendance(
-    student_id: str,
-    name: str,
-    confidence: Optional[float] = None,
-    liveness_ok: bool = False,
-    snapshot_path: Optional[str] = None,
-    csv_path: str = DEFAULT_CSV_PATH,
-) -> None:
-    Path(csv_path).parent.mkdir(parents=True, exist_ok=True)
-    file_exists = Path(csv_path).exists()
+class CSVLogger:
+    def __init__(self, file_path: str = "attendance_records/attendance.csv"):
+        self.base_path = Path(file_path)
+        self.file_path = self._create_dated_filepath()
+        self.logged_names = set()  # Track names logged in current session
+        self._write_header()
 
-    row = [
-        datetime.now().isoformat(timespec="seconds"),
-        (student_id or "").strip(),
-        (name or "").strip(),
-        "" if confidence is None else float(confidence),
-        int(bool(liveness_ok)),
-        "" if snapshot_path is None else str(snapshot_path),
-    ]
+    def _create_dated_filepath(self) -> Path:
+        datetime_str = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+        filename = f"{datetime_str}_{self.base_path.stem}{self.base_path.suffix}"
+        return self.base_path.parent / filename
 
-    with open(csv_path, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(["timestamp", "student_id", "name", "confidence", "liveness_ok", "snapshot_path"])
-        writer.writerow(row)
+    def _write_header(self) -> None:
+        self.file_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.file_path.exists() or self.file_path.stat().st_size == 0:
+            with self.file_path.open(mode="w", newline="", encoding="utf-8") as file:
+                writer = csv.writer(file)
+                writer.writerow(["Name", "Time"])
+
+    def log_attendance(self, name: str) -> None:
+        if name not in self.logged_names:
+            self.logged_names.add(name)
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            with self.file_path.open(mode="a", newline="", encoding="utf-8") as file:
+                writer = csv.writer(file)
+                writer.writerow([name, timestamp])
+
+
+if __name__ == "__main__":
+    logger = CSVLogger("attendance_records/attendance.csv")
+    logger.log_attendance("Mhmad")
+
