@@ -3,7 +3,7 @@ import cv2
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QLabel, QPushButton, 
     QVBoxLayout, QHBoxLayout, QWidget, QLineEdit, 
-    QDialog, QFormLayout, QMessageBox, QScrollArea, QFrame
+    QDialog, QFormLayout, QMessageBox, QScrollArea, QCheckBox
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QPixmap
@@ -11,69 +11,93 @@ from PySide6.QtGui import QImage, QPixmap
 # --- IMPORTS ---
 from app.auth import AuthManager
 from app import database
-from app.models import Student
-from app.attendance import AttendanceManager # Integration of your logic
+from app.models import Student, Staff  # <--- IMPORT STAFF HERE
+from app.attendance import AttendanceManager
 
-# --- REGISTER DIALOG (Unchanged) ---
+# --- REGISTER DIALOG (Updated for Staff) ---
 class RegisterDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Register New Student")
+        self.setWindowTitle("Register New User")
         self.setMinimumWidth(300)
+        
+        # Layout
         layout = QFormLayout(self)
         
+        # Fields
         self.name_input = QLineEdit()
         self.id_input = QLineEdit()
         self.pass_input = QLineEdit()
         self.pass_input.setEchoMode(QLineEdit.Password)
-        self.class_input = QLineEdit()
         
-        save_btn = QPushButton("Save Student")
-        save_btn.clicked.connect(self.save_student)
+        # Dynamic Field (Class vs Department)
+        self.extra_input = QLineEdit()
+        self.extra_input.setPlaceholderText("Class Name (e.g., CS-101)")
+
+        # Checkbox to switch roles
+        self.staff_check = QCheckBox("Register as Staff Member")
+        self.staff_check.toggled.connect(self.toggle_role)
+
+        save_btn = QPushButton("Save User")
+        save_btn.clicked.connect(self.save_user)
 
         layout.addRow("Name:", self.name_input)
-        layout.addRow("Student ID:", self.id_input)
+        layout.addRow("User ID:", self.id_input)
         layout.addRow("Password:", self.pass_input)
-        layout.addRow("Class:", self.class_input)
+        layout.addRow(self.staff_check)
+        layout.addRow("Class/Dept:", self.extra_input)
         layout.addRow(save_btn)
 
-    def save_student(self):
-        name = self.name_input.text()
-        sid = self.id_input.text()
-        pwd = self.pass_input.text()
-        cls = self.class_input.text()
+    def toggle_role(self, checked):
+        """Switches the label based on checkbox state"""
+        if checked:
+            self.extra_input.setPlaceholderText("Department (e.g., IT Dept)")
+        else:
+            self.extra_input.setPlaceholderText("Class Name (e.g., CS-101)")
 
-        if not name or not sid or not pwd:
+    def save_user(self):
+        name = self.name_input.text()
+        uid = self.id_input.text()
+        pwd = self.pass_input.text()
+        extra = self.extra_input.text()
+
+        if not name or not uid or not pwd:
             QMessageBox.warning(self, "Error", "Fill all fields")
             return
 
-        new_student = Student(name, sid, pwd, cls)
-        if new_student.save_to_db():
-            QMessageBox.information(self, "Success", f"Student {name} registered!")
+        # --- POLYMORPHISM IN ACTION ---
+        if self.staff_check.isChecked():
+            # Create STAFF Object
+            new_user = Staff(name, uid, extra, pwd)
+        else:
+            # Create STUDENT Object
+            new_user = Student(name, uid, pwd, extra)
+
+        # Both classes have .save_to_db(), but they behave differently
+        if new_user.save_to_db():
+            role = new_user.get_role()
+            QMessageBox.information(self, "Success", f"{role} {name} registered!")
             self.accept()
         else:
             QMessageBox.warning(self, "Error", "ID exists or DB Error")
 
-# --- MAIN APPLICATION ---
+# --- MAIN APPLICATION (Same as before) ---
 class MainApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Smart Attendance System")
-        self.setGeometry(100, 100, 900, 600) # Made window bigger for camera
+        self.setGeometry(100, 100, 900, 600)
         
-        # Managers
         self.auth_manager = AuthManager()
-        self.attendance_manager = AttendanceManager() # Load Face Recognition
+        self.attendance_manager = AttendanceManager()
         database.init_db()
 
-        # Camera Timer
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_frame)
 
         self.show_login_screen()
 
     def clear_window(self):
-        # Stop camera if running before switching screens
         if self.timer.isActive():
             self.timer.stop()
         self.attendance_manager.stop_camera()
@@ -92,7 +116,7 @@ class MainApp(QMainWindow):
         title.setStyleSheet("font-size:24px; font-weight:bold; color: #007ACC;")
 
         self.student_id_input = QLineEdit()
-        self.student_id_input.setPlaceholderText("Student ID")
+        self.student_id_input.setPlaceholderText("User ID")
         self.student_id_input.setStyleSheet("padding: 10px;")
 
         self.password_input = QLineEdit()
@@ -104,7 +128,7 @@ class MainApp(QMainWindow):
         login_btn.setStyleSheet("background-color: #007ACC; color: white; padding: 10px; font-weight: bold;")
         login_btn.clicked.connect(self.login_clicked)
 
-        reg_btn = QPushButton("Register New Student")
+        reg_btn = QPushButton("Register New User")
         reg_btn.setStyleSheet("color: #007ACC; background: transparent; border: none;")
         reg_btn.clicked.connect(self.open_register)
 
@@ -138,7 +162,6 @@ class MainApp(QMainWindow):
     def show_main_screen(self, user):
         self.clear_window()
         
-        # Main Layout: Horizontal (Left: Camera, Right: History)
         main_layout = QHBoxLayout()
 
         # --- LEFT PANEL: CAMERA ---
@@ -147,23 +170,21 @@ class MainApp(QMainWindow):
         welcome_label = QLabel(f"Welcome, {user.name}")
         welcome_label.setStyleSheet("font-size: 18px; font-weight: bold;")
         
-        # Camera Feed Label
         self.video_label = QLabel("Camera Offline")
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setStyleSheet("background-color: black; color: white; border-radius: 10px;")
-        self.video_label.setMinimumSize(480, 360) # 4:3 Aspect Ratio
+        self.video_label.setMinimumSize(480, 360)
         
         self.status_label = QLabel("Status: Ready")
         self.status_label.setStyleSheet("font-weight: bold; color: gray;")
 
-        # Buttons
         btn_layout = QHBoxLayout()
         self.start_btn = QPushButton("Start Camera")
         self.start_btn.clicked.connect(self.toggle_camera)
         
         self.mark_btn = QPushButton("Mark Attendance")
         self.mark_btn.clicked.connect(self.mark_attendance)
-        self.mark_btn.setEnabled(False) # Disabled until camera starts
+        self.mark_btn.setEnabled(False)
 
         logout_btn = QPushButton("Logout")
         logout_btn.setStyleSheet("background-color: #d32f2f; color: white;")
@@ -179,18 +200,16 @@ class MainApp(QMainWindow):
         left_panel.addWidget(logout_btn)
         left_panel.addStretch()
 
-        # --- RIGHT PANEL: HISTORY & SEARCH ---
+        # --- RIGHT PANEL: HISTORY ---
         right_panel = QVBoxLayout()
         
         hist_title = QLabel("Attendance History")
         hist_title.setStyleSheet("font-size: 16px; font-weight: bold;")
 
-        # Search Bar
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("Search history (Date, Status)...")
-        self.search_bar.textChanged.connect(self.filter_history) # Live Search
+        self.search_bar.setPlaceholderText("Search history...")
+        self.search_bar.textChanged.connect(self.filter_history)
 
-        # Scroll Area for History
         self.history_scroll = QScrollArea()
         self.history_scroll.setWidgetResizable(True)
         self.history_content = QLabel("Loading...")
@@ -202,7 +221,6 @@ class MainApp(QMainWindow):
         right_panel.addWidget(self.search_bar)
         right_panel.addWidget(self.history_scroll)
 
-        # Add panels to main layout
         main_layout.addLayout(left_panel, 65)
         main_layout.addLayout(right_panel, 35)
 
@@ -210,41 +228,35 @@ class MainApp(QMainWindow):
         container.setLayout(main_layout)
         self.setCentralWidget(container)
 
-        # Load initial history
         self.refresh_history()
 
     # --- CAMERA LOGIC ---
     def toggle_camera(self):
         if not self.timer.isActive():
-            # Start Camera
             self.attendance_manager.start_camera()
-            self.timer.start(30) # Update every 30ms (~30 FPS)
+            self.timer.start(30)
             self.start_btn.setText("Stop Camera")
             self.mark_btn.setEnabled(True)
             self.status_label.setText("Status: Camera Active")
         else:
-            # Stop Camera
             self.timer.stop()
             self.attendance_manager.stop_camera()
-            self.video_label.setPixmap(QPixmap()) # Clear image
+            self.video_label.setPixmap(QPixmap())
             self.video_label.setText("Camera Offline")
             self.start_btn.setText("Start Camera")
             self.mark_btn.setEnabled(False)
             self.status_label.setText("Status: Ready")
 
     def update_frame(self):
-        """Called every 30ms to draw the latest frame"""
         cap = self.attendance_manager.cap
         if cap and cap.isOpened():
             ret, frame = cap.read()
             if ret:
-                # Convert OpenCV (BGR) to Qt (RGB)
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 h, w, ch = frame.shape
                 bytes_per_line = ch * w
                 q_img = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
                 
-                # Scale to fit label
                 scaled_pixmap = QPixmap.fromImage(q_img).scaled(
                     self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
                 )
@@ -254,27 +266,23 @@ class MainApp(QMainWindow):
         user = self.auth_manager.get_current_user()
         if not user: return
 
-        # 1. Pause video feed so 'detect_and_mark' can use the camera
         self.timer.stop()
         self.status_label.setText("Status: Scanning Face...")
         QApplication.processEvents()
 
-        # 2. Call your logic (AttendanceManager)
         success, msg = self.attendance_manager.detect_and_mark(
             student_id=user.get_id(),
             student_name=user.name
         )
 
-        # 3. Handle Result
         if success:
             self.status_label.setText(f"✅ {msg}")
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
-            self.refresh_history() # Update list immediately
+            self.refresh_history()
         else:
             self.status_label.setText(f"❌ {msg}")
             self.status_label.setStyleSheet("color: red; font-weight: bold;")
 
-        # 4. Resume video feed
         self.timer.start(30)
 
     def logout_clicked(self):
@@ -286,28 +294,22 @@ class MainApp(QMainWindow):
         self.filter_history("")
 
     def filter_history(self, search_text):
-        """Fetches and filters history based on search box"""
         user = self.auth_manager.get_current_user()
         if not user: return
 
-        # Get all records for this student
         records = database.get_attendance_history(user.get_id())
         
         if not records:
             self.history_content.setText("No records found.")
             return
 
-        # Build display text
         display_text = ""
         for row in records:
-            # Row format from DB: (timestamp, name, photo_path, confidence, is_late)
             timestamp = str(row[0])
             status = "Late" if row[4] else "Present"
             confidence = f"{row[3]:.0f}%" if row[3] else "N/A"
-            
             line = f"[{timestamp}] {status} (Conf: {confidence})"
 
-            # Filter Logic
             if search_text.lower() in line.lower():
                 display_text += line + "\n\n"
 
