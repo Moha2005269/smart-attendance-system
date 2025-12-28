@@ -10,8 +10,9 @@ sys.path.append(root_dir)
 
 # 2. Import your modules
 from src.recognizer.face_recognition_system import FaceRecognitionSystem
-from src.logger.csv_logger import CSVLogger  # <--- NEW: Import CSV Logger
+from src.logger.csv_logger import CSVLogger
 from app.database import record_attendance
+import sqlite3 # Needed to fetch role
 
 class AttendanceManager:
     """
@@ -23,6 +24,7 @@ class AttendanceManager:
         self.encodings_path = os.path.join(root_dir, "models", "encodings.pkl")
         self.predictor_path = os.path.join(root_dir, "models", "shape_predictor_68_face_landmarks.dat")
         self.csv_folder = os.path.join(root_dir, "attendance_records")
+        self.db_path = os.path.join(root_dir, "database", "attendance.db") # For role lookup
 
         # --- LOAD ENGINE ---
         try:
@@ -36,7 +38,6 @@ class AttendanceManager:
             self.recognizer = None
 
         # --- LOAD CSV LOGGER ---
-        # This creates a file like: attendance_records/04-07-2025_..._attendance.csv
         try:
             base_csv_path = os.path.join(self.csv_folder, "attendance.csv")
             self.csv_logger = CSVLogger(base_csv_path)
@@ -57,6 +58,32 @@ class AttendanceManager:
         if self.cap:
             self.cap.release()
             self.cap = None
+
+    def _get_user_role(self, user_id):
+        """Helper to find if user is Student or Staff from DB"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            # We check the 'class_name' field. 
+            # In our models.py logic, Staff save their Department into 'class_name'.
+            # But to be precise, we can check a naming convention or just return 'User' if unsure.
+            
+            # Since we didn't add a specific 'role' column to the DB to keep it simple,
+            # we will assume everyone is a Student unless we find a way to distinguish.
+            # HOWEVER, for the CSV to look good, let's fetch the class/dept.
+            
+            cursor.execute("SELECT class_name FROM students WHERE student_id = ?", (user_id,))
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result:
+                # If the value looks like a Department (e.g., "IT Dept"), we call them Staff.
+                # If it looks like a Class (e.g., "CS-101"), we call them Student.
+                # For now, let's just log the 'Class/Dept' value itself as context.
+                return result[0] 
+            return "Unknown"
+        except:
+            return "Unknown"
 
     def detect_and_mark(self, student_id, student_name):
         """
@@ -81,12 +108,10 @@ class AttendanceManager:
         confidence = 0.0
         
         for res in results:
-            # Case-insensitive name match
             if res['label'].lower() == student_name.lower():
                 confidence = res['confidence'] * 100
                 match_found = True
                 
-                # Liveness Check
                 is_live = res.get('liveness_ok', True) 
                 if not is_live:
                     return False, "Liveness Check Failed"
@@ -96,7 +121,7 @@ class AttendanceManager:
                 break
 
         if match_found:
-            # --- ACTION: SAVE SNAPSHOT ---
+            # Save Snapshot
             photo_dir = os.path.join(root_dir, "attendance_photos")
             os.makedirs(photo_dir, exist_ok=True)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -104,22 +129,18 @@ class AttendanceManager:
             photo_path = os.path.join(photo_dir, photo_filename)
             cv2.imwrite(photo_path, frame)
 
-            # --- ACTION: SAVE TO DATABASE ---
+            # Save to DB
             try:
-                record_attendance(
-                    user_id=student_id,
-                    status="Present", 
-                    confidence=confidence, 
-                    liveness=True, 
-                    snapshot=photo_path
-                )
+                record_attendance(user_id=student_id, status="Present", confidence=confidence, liveness=True, snapshot=photo_path)
             except Exception as e:
                 print(f"DB Error: {e}")
 
-            # --- ACTION: SAVE TO CSV (THE FIX) ---
+            # --- ACTION: SAVE TO CSV WITH ROLE ---
             if self.csv_logger:
-                self.csv_logger.log_attendance(student_name)
-                print(f"📝 Logged to CSV: {student_name}")
+                # We fetch the "Class/Dept" info to use as the Role/Info column
+                role_info = self._get_user_role(student_id)
+                self.csv_logger.log_attendance(student_name, student_id, role_info)
+                print(f"📝 Logged to CSV: {student_name} ({role_info})")
 
             return True, f"Marked Present ({confidence:.0f}%)"
 
