@@ -1,17 +1,17 @@
 import sqlite3
 from pathlib import Path
+from datetime import datetime
 
+# Define DB Path
 DB_PATH = Path("database/attendance.db")
-
-# Auto-create database folder if it doesn't exist
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-
 def init_db():
+    """Initialize the database tables."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
-    # Students table (simplified)
+    
+    # Students Table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS students (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,120 +22,89 @@ def init_db():
         )
     """)
 
-    # Sessions table (for multi-class support)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_name TEXT NOT NULL,
-            start_time TEXT,
-            end_time TEXT
-        )
-    """)
-
-    # Attendance table (simplified)
+    # Attendance Table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS attendance (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             student_id TEXT NOT NULL,
             name TEXT NOT NULL,
-            session_id INTEGER,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            photo_path TEXT,
+            status TEXT,
             confidence REAL,
-            is_late BOOLEAN DEFAULT 0
+            photo_path TEXT
         )
     """)
-
+    
     conn.commit()
     conn.close()
 
-
 def add_student(student_id, password, name, class_name=""):
-    init_db()
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    """Register a new student."""
     try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO students (student_id, password, name, class_name)
+            INSERT INTO students (student_id, password, name, class_name) 
             VALUES (?, ?, ?, ?)
         """, (student_id, password, name, class_name))
         conn.commit()
+        conn.close()
         return True
     except sqlite3.IntegrityError:
         return False
-    finally:
-        conn.close()
-
+    except Exception as e:
+        print(f"Database Error (add_student): {e}")
+        return False
 
 def get_student(student_id, password):
-    init_db()
+    """Verify login."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, student_id, name, class_name
-        FROM students
+        SELECT id, student_id, name, class_name 
+        FROM students 
         WHERE student_id = ? AND password = ?
     """, (student_id, password))
     row = cursor.fetchone()
     conn.close()
     return row
 
-
-def mark_attendance(student_id, name, session_id=None, photo_path=None, confidence=None, is_late=False):
-    init_db()
+def get_attendance_history(student_id):
+    """Fetch history for the UI."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO attendance (student_id, name, session_id, photo_path, confidence, is_late)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (student_id, name, session_id, photo_path, confidence, int(bool(is_late))))
-    conn.commit()
-    conn.close()
-
-
-def get_attendance_history(student_id=None):
-    init_db()
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    if student_id:
-        cursor.execute("""
-            SELECT timestamp, name, photo_path, confidence, is_late
-            FROM attendance
-            WHERE student_id = ?
-            ORDER BY timestamp DESC
-        """, (student_id,))
-    else:
-        cursor.execute("""
-            SELECT timestamp, student_id, name, photo_path, confidence, is_late
-            FROM attendance
-            ORDER BY timestamp DESC
-        """)
-
+        SELECT timestamp, name, photo_path, confidence, status 
+        FROM attendance 
+        WHERE student_id = ? 
+        ORDER BY timestamp DESC
+    """, (student_id,))
     rows = cursor.fetchall()
     conn.close()
     return rows
 
+def record_attendance(user_id, status, confidence, liveness, snapshot):
+    """
+    Records attendance into the database.
+    This is the function your error says is missing!
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Fetch name to keep records complete
+        cursor.execute("SELECT name FROM students WHERE student_id = ?", (user_id,))
+        result = cursor.fetchone()
+        name = result[0] if result else "Unknown"
 
-def get_student_count():
-    init_db()
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM students")
-    count = cursor.fetchone()[0]
-    conn.close()
-    return count
-
-
-def get_today_attendance_count():
-    init_db()
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT COUNT(*)
-        FROM attendance
-        WHERE date(timestamp) = date('now')
-    """)
-    count = cursor.fetchone()[0]
-    conn.close()
-    return count
+        cursor.execute("""
+            INSERT INTO attendance (student_id, name, status, confidence, photo_path)
+            VALUES (?, ?, ?, ?, ?)
+        """, (user_id, name, status, confidence, snapshot))
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Database Error (record_attendance): {e}")
+        return False
